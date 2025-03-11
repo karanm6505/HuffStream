@@ -25,8 +25,8 @@ The project is organized into three main components:
 CN_Project/
 ├── client/
 │   ├── client.py                # Client application
-│   ├── sending_files/           # Files to be sent
-│   └── received_files/          # Files received from server
+│   └── sending_files/           # Files to be sent
+│   
 ├── server/
 │   ├── server.py                # Server application
 │   └── received_files/          # Files received from client
