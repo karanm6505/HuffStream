@@ -22,7 +22,7 @@ The project is organized into three main components:
 ### Directory Structure
 
 ```
-CN_Project/
+HuffStream/
 ├── client/
 │   ├── client.py                # Client application
 │   └── sending_files/           # Files to be sent
