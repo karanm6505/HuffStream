@@ -61,7 +61,7 @@ Huffman coding is a lossless data compression algorithm that:
 
 1. Navigate to the server directory:
    ```
-   cd /Users/karanm/Desktop/CN_Project/server
+   cd server
    ```
 
 2. Run the server:
@@ -75,7 +75,7 @@ Huffman coding is a lossless data compression algorithm that:
 
 1. Navigate to the client directory:
    ```
-   cd /Users/karanm/Desktop/CN_Project/client
+   cd client
    ```
 
 2. Place the file you want to send in the `sending_files` directory.
