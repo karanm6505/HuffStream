@@ -1,10 +1,7 @@
 import socket
 import os
 import sys
-
-# Add the parent directory to sys.path to import the utils module
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.huffman import encode_data, decode_file
+import subprocess
 
 def receive_file(conn, save_dir):
     """Receive a file from the client."""
@@ -32,78 +29,40 @@ def receive_file(conn, save_dir):
     print(f"\nFile {filename} received successfully")
     return dest_path
 
-def send_encoded_data(conn, original_file_path):
-    """Encode a file using Huffman coding and send it to the client without saving."""
+def decode_received_file(encoded_file_path):
+    """Decode a received file using decode_file.py script."""
     try:
-        # Read the original file
-        with open(original_file_path, 'rb') as f:
-            file_data = f.read()
-        
-        # Get the filename for the encoded version
-        filename = os.path.basename(original_file_path)
-        base_name, ext = os.path.splitext(filename)
-        encoded_filename = f"{base_name}_encoded{ext}"
-        
-        # Encode the data in memory
-        print(f"Encoding {filename} using Huffman coding...")
-        encoded_data, compression_ratio = encode_data(file_data)
-        filesize = len(encoded_data)
-        
-        # Send filename and filesize
-        file_info = f"{encoded_filename}|{filesize}"
-        conn.send(file_info.encode('utf-8'))
-        
-        # Send the encoded data
-        print(f"Sending encoded data ({filesize} bytes) to client...")
-        conn.sendall(encoded_data)
-        
-        print(f"Encoded data sent successfully (compression ratio: {compression_ratio:.2f}%)")
-        return True
-    except Exception as e:
-        print(f"Error encoding and sending data: {e}")
-        return False
-
-def receive_encoded_file(conn, save_dir):
-    """Receive an encoded file from the client."""
-    try:
-        # Receive filename and filesize
-        file_info = conn.recv(1024).decode('utf-8')
-        filename, filesize = file_info.split('|')
-        filesize = int(filesize)
-        
-        # Create the destination path
-        encoded_path = os.path.join(save_dir, filename)
-        
-        # Receive encoded file data
-        print(f"Receiving encoded file {filename} ({filesize} bytes)...")
-        received = 0
-        with open(encoded_path, 'wb') as file:
-            while received < filesize:
-                data = conn.recv(4096)
-                if not data:
-                    break
-                file.write(data)
-                received += len(data)
-                progress = (received / filesize) * 100
-                print(f"Progress: {progress:.2f}%", end="\r")
-        
-        print(f"\nEncoded file {filename} received successfully")
-        
         # Create path for decoded file
+        filename = os.path.basename(encoded_file_path)
         base_name, ext = os.path.splitext(filename)
         decoded_filename = base_name.replace('_encoded', '_decoded') + ext
+        save_dir = os.path.dirname(encoded_file_path)
         decoded_path = os.path.join(save_dir, decoded_filename)
         
-        # Decode the file
-        print(f"Decoding file...")
-        decoded_path = decode_file(encoded_path, decoded_path)
+        # Get path to decode_file.py script
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        decode_script = os.path.join(project_root, 'utils', 'decode_file.py')
         
-        print(f"File decoded successfully: {decoded_path}")
+        # Run the decoding script
+        print(f"Decoding file using Huffman coding...")
+        print(f"Running: python3 {decode_script} {encoded_file_path} {decoded_path}")
         
-        return encoded_path, decoded_path
+        result = subprocess.run(
+            [sys.executable, decode_script, encoded_file_path, decoded_path],
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode == 0:
+            print(f"File decoded successfully: {decoded_path}")
+            return decoded_path
+        else:
+            print(f"Error decoding file: {result.stderr}")
+            return None
+            
     except Exception as e:
-        print(f"Error receiving/decoding file: {e}")
-        return None, None
+        print(f"Error during decoding: {e}")
+        return None
 
 def start_server(host='0.0.0.0', port=9999):
     """Start a server listening for incoming file transfers."""
@@ -133,24 +92,17 @@ def start_server(host='0.0.0.0', port=9999):
             try:
                 # Receive and save file
                 received_file_path = receive_file(conn, save_dir)
-                print(f"File saved at {received_file_path}")
+                print(f"Encoded file saved at {received_file_path}")
                 
-                # Encode and send back the file (in memory)
-                if send_encoded_data(conn, received_file_path):
-                    print("Transaction completed successfully")
-                else:
-                    conn.send("Error encoding the file".encode('utf-8'))
-                    
-                # Receive and process encoded file
-                encoded_path, decoded_path = receive_encoded_file(conn, save_dir)
+                # Decode the received file
+                decoded_file_path = decode_received_file(received_file_path)
                 
-                if encoded_path and decoded_path:
+                if decoded_file_path:
                     conn.send("File received and decoded successfully".encode('utf-8'))
-                    print(f"Encoded file saved at: {encoded_path}")
-                    print(f"Decoded file saved at: {decoded_path}")
+                    print(f"Decoded file saved at: {decoded_file_path}")
                 else:
-                    conn.send("Error processing file".encode('utf-8'))
-                    
+                    conn.send("File received but decoding failed".encode('utf-8'))
+                
             except Exception as e:
                 print(f"Error handling file transfer: {e}")
                 conn.send(f"Error: {str(e)}".encode('utf-8'))

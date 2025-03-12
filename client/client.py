@@ -9,9 +9,9 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.huffman import encode_data
 
 # Configuration variables
-SERVER_IP = "172.20.10.4"  # Server IP address
+SERVER_IP = "192.168.184.158"  # Server IP address
 PORT = 9999               # Server port
-FILE_PATH = "sending_files/sample.txt"   # Path of the file to send
+FILE_PATH = "/Users/karanm/Desktop/CN_Project/client/sending_files/sample.txt"   # Path of the file to send
 
 def send_encoded_file(host, port, file_path):
     """Encode a file using Huffman coding and send it to the server."""
