@@ -2,6 +2,14 @@
 
 A client-server application for transferring files with Huffman encoding-based compression. This system demonstrates data compression techniques in network communications.
 
+## New Features
+
+- **Multiple Clients/Servers**: Support for any number of clients and servers
+- **Dual Channels**: Separate channels for data and control transmissions
+- **SSL/TLS Security**: Encrypted communications between client and server
+- **Graceful Termination**: Proper cleanup to prevent socket binding errors
+- **Configuration-based**: No need to rewrite or recompile code for new servers
+
 ## Installation
 
 1. Clone the repository:
@@ -15,35 +23,91 @@ cd HuffStream
 pip install -r requirements.txt
 ```
 
+3. Generate SSL certificates:
+```bash
+python scripts/generate_certificates.py
+```
+
 ## Configuration
 
-Before running the application, you need to configure your environment variables in a `.env` file. Create a file named `.env` in the root directory with the following variables:
+The application uses JSON configuration files located in the `config` directory:
 
-```properties
-SERVER_IP=192.168.184.138  # Replace with your server's IP address
-PORT=9999                  # Server port (default: 9999)
-FILE_PATH=/path/to/file    # Path to the file you want to send
+### Server Configuration
+
+Edit `config/server_config.json`:
+
+```json
+{
+  "servers": [
+    {
+      "host": "0.0.0.0",
+      "data_port": 9999,
+      "control_port": 9998,
+      "save_directory": "received_files",
+      "ssl": {
+        "enabled": true,
+        "cert_file": "config/server.crt",
+        "key_file": "config/server.key"
+      }
+    }
+  ],
+  "max_connections": 10,
+  "buffer_size": 4096
+}
+```
+
+### Client Configuration
+
+Edit `config/client_config.json`:
+
+```json
+{
+  "servers": [
+    {
+      "host": "127.0.0.1",
+      "data_port": 9999,
+      "control_port": 9998,
+      "ssl": {
+        "enabled": true,
+        "cert_file": "config/server.crt",
+        "verify": false
+      }
+    }
+  ],
+  "buffer_size": 4096,
+  "retry_attempts": 3,
+  "retry_delay": 5
+}
 ```
 
 ## Usage
 
-Run the client:
+### Enhanced Server
 
 ```bash
-python client/client.py
+python server/multi_server.py
 ```
 
-Run the server:
+### Enhanced Client
 
 ```bash
-python server/server.py
+python client/multi_client.py /path/to/file.txt
+```
+
+To specify a different server from the configuration:
+
+```bash
+python client/multi_client.py /path/to/file.txt --server 1
 ```
 
 ## Features
 
 - File compression using Huffman coding
 - Client-server architecture for file transfer
+- SSL/TLS encrypted communications
+- Separate channels for data and control messages
 - Environment-based configuration
+- Support for multiple simultaneous connections
 
 ## Project Overview
 
@@ -53,14 +117,17 @@ This application implements a client-server architecture for file transfer with 
 - **Network Transfer**: Sends compressed files over TCP/IP
 - **Decompression**: Reconstructs original files from Huffman-encoded data
 - **Compression Statistics**: Displays file size reduction metrics
+- **SSL Security**: Encrypts communications between client and server
+- **Multi-client Support**: Handles multiple client connections simultaneously
 
 ## System Architecture
 
-The project is organized into three main components:
+The project is organized into these main components:
 
-1. **Client**: Encodes and sends files to the server
-2. **Server**: Receives encoded files, decodes them, and saves both versions
-3. **Utilities**: Contains the Huffman encoding/decoding implementation
+1. **Network Manager**: Handles socket connections, SSL, and threading
+2. **Client**: Encodes and sends files to the server
+3. **Server**: Receives encoded files, decodes them, and saves both versions
+4. **Utilities**: Contains the Huffman encoding/decoding implementation
 
 ### Directory Structure
 
@@ -68,11 +135,23 @@ The project is organized into three main components:
 HuffStream/
 ├── client/
 │   ├── client.py                # Client application
+│   ├── multi_client.py          # Enhanced client application
 │   └── sending_files/           # Files to be sent
 │   
 ├── server/
 │   ├── server.py                # Server application
+│   ├── multi_server.py          # Enhanced server application
 │   └── received_files/          # Files received from client
+│   
+├── config/
+│   ├── client_config.json       # Client configuration file
+│   ├── server_config.json       # Server configuration file
+│   ├── server.crt               # SSL certificate
+│   ├── server.key               # SSL key
+│   
+├── scripts/
+│   └── generate_certificates.py # Script to generate SSL certificates
+│   
 └── utils/
     ├── huffman.py               # Huffman coding implementation
     ├── encode_file.py           # Command-line encoding tool
@@ -107,12 +186,12 @@ Huffman coding is a lossless data compression algorithm that:
    cd server
    ```
 
-2. Run the server:
+2. Run the enhanced server:
    ```
-   python server.py
+   python multi_server.py
    ```
    
-   The server will start listening on port 9999 by default.
+   The server will start listening on the configured ports.
 
 ### Client Usage
 
@@ -123,13 +202,14 @@ Huffman coding is a lossless data compression algorithm that:
 
 2. Place the file you want to send in the `sending_files` directory.
 
-3. Edit `client.py` to set:
-   - `SERVER_IP`: IP address of the server
-   - `FILE_PATH`: Path to the file you want to send
-
-4. Run the client:
+3. Run the enhanced client:
    ```
-   python client.py
+   python multi_client.py /path/to/file.txt
+   ```
+
+4. To specify a different server from the configuration:
+   ```
+   python multi_client.py /path/to/file.txt --server 1
    ```
 
 ### Stand-alone Encoding/Decoding
