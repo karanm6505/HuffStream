@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.network_manager import ConnectionManager
 from utils.huffman import encode_data
+from utils.ssl_context import SSLContext  # Assuming SSLContext is defined in utils.ssl_context
 
 class HuffStreamClient:
     """Client for sending files with Huffman encoding over secure channels"""
@@ -35,6 +36,22 @@ class HuffStreamClient:
         # Default server index
         self.current_server = 0
     
+    def connect_to_server(self, server_index=0):
+        """Connect to a server as a client"""
+        server_config = self.config['servers'][server_index]
+        
+        # Setup SSL if enabled
+        ssl_context = None
+        if server_config.get('ssl', {}).get('enabled', False):
+            cert_file = None
+            if 'cert_file' in server_config['ssl']:
+                cert_file = self.project_root / server_config['ssl']['cert_file']
+            verify = server_config['ssl'].get('verify', False)
+            verification_mode = server_config['ssl'].get('verification_mode', 'required')
+            ssl_context = SSLContext.create_client_context(cert_file, verify, verification_mode)
+        
+        return self.connection_manager.connect(server_config, ssl_context)
+    
     def send_file(self, file_path, server_index=None):
         """Send a file to the server using Huffman encoding"""
         if server_index is not None:
@@ -46,7 +63,7 @@ class HuffStreamClient:
         
         try:
             # Connect to server
-            data_socket, control_socket = self.connection_manager.connect_to_server(self.current_server)
+            data_socket, control_socket = self.connect_to_server(self.current_server)
             
             # Read the file
             with open(file_path, 'rb') as f:
@@ -149,7 +166,7 @@ class HuffStreamClient:
         
         try:
             # Connect to server (control channel only needed)
-            _, control_socket = self.connection_manager.connect_to_server(self.current_server)
+            _, control_socket = self.connect_to_server(self.current_server)
             
             # Send status request
             status_msg = {

@@ -15,8 +15,7 @@ from utils.huffman import encode_data
 # Configuration variables from environment
 SERVER_IP = '192.168.64.16'  # Changed from previous IP to 172.20.10.4
 PORT = int(os.getenv("PORT", 9999))  # Server port with default fallback
-FILE_PATH = "/Users/karanm/HuffStream/Screenshot 2025-04-13 at 11.27.47 AM.png"   # Path of the file to send
-
+FILE_PATH = "/Users/karanm/Desktop/bubblesort.png"
 def send_encoded_file(host, port, file_path):
     """Encode a file using Huffman coding and send it to the server."""
     # Create a socket

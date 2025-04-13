@@ -85,6 +85,44 @@ Edit `config/client_config.json`:
 }
 ```
 
+### SSL/TLS Implementation
+
+The application uses Python's built-in `ssl` module to provide secure communications:
+
+1. Server generates a self-signed certificate and private key
+2. Client verifies the server's certificate using configurable verification modes:
+   - `required`: Certificate must be valid and trusted
+   - `optional`: Certificate is verified if possible
+   - `disabled`: No certificate verification (not recommended for production)
+3. All data transfers are encrypted using TLS 1.2 or higher
+
+To enable certificate verification:
+
+```json
+"ssl": {
+  "enabled": true,
+  "cert_file": "config/server.crt",
+  "verify": true,
+  "verification_mode": "required"
+}
+```
+
+For development environments or testing, you can disable verification:
+
+```json
+"ssl": {
+  "enabled": true,
+  "verify": false
+}
+```
+
+### Security Considerations
+
+For production environments:
+- Replace the self-signed certificate with a certificate from a trusted CA
+- Always use certificate verification
+- Regularly update certificates before expiration
+
 ## Usage
 
 ### Enhanced Server

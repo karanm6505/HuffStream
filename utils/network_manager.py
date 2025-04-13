@@ -25,20 +25,46 @@ class SSLContext:
             return None
     
     @staticmethod
-    def create_client_context(cert_file=None, verify=False):
+    def create_client_context(cert_file=None, verify=False, verification_mode="required"):
         """Create an SSL context for the client"""
         context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
+        
         if not verify:
+            print("WARNING: SSL certificate verification is disabled")
             context.check_hostname = False
             context.verify_mode = ssl.CERT_NONE
-        if cert_file:
-            try:
-                context.load_verify_locations(cafile=cert_file)
-            except (FileNotFoundError, ssl.SSLError) as e:
-                print(f"SSL Warning: {e}")
-                print(f"Will continue without certificate verification")
-                context.check_hostname = False
-                context.verify_mode = ssl.CERT_NONE
+        else:
+            print("SSL certificate verification is enabled")
+            context.check_hostname = True
+            
+            # Set verification mode based on configuration
+            if verification_mode.lower() == "required":
+                context.verify_mode = ssl.CERT_REQUIRED
+                print("Certificate verification mode: REQUIRED")
+            elif verification_mode.lower() == "optional":
+                context.verify_mode = ssl.CERT_OPTIONAL
+                print("Certificate verification mode: OPTIONAL")
+            else:
+                context.verify_mode = ssl.CERT_REQUIRED  # Default to required
+            
+            if cert_file:
+                try:
+                    context.load_verify_locations(cafile=cert_file)
+                    print(f"Using certificate file: {cert_file}")
+                except (FileNotFoundError, ssl.SSLError) as e:
+                    print(f"SSL Warning: {e}")
+                    print("Cannot proceed with verification without valid certificate")
+                    if context.verify_mode == ssl.CERT_REQUIRED:
+                        raise
+                    else:
+                        # Fall back to no verification if not required
+                        print("Falling back to no certificate verification")
+                        context.check_hostname = False
+                        context.verify_mode = ssl.CERT_NONE
+        
+        # Set secure protocol options
+        context.options |= ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1  # Disable older protocols
+        
         return context
 
 class ConnectionManager:
@@ -220,13 +246,38 @@ class ConnectionManager:
                 # Wrap with SSL if configured
                 if ssl_context:
                     try:
+                        # This is where certificate verification happens
                         client_socket = ssl_context.wrap_socket(
                             client_socket,
                             server_hostname=host if ssl_context.check_hostname else None
                         )
+                        
+                        # Explicitly verify and show certificate details
+                        if ssl_context.verify_mode != ssl.CERT_NONE:
+                            cert = client_socket.getpeercert()
+                            if cert:
+                                print("Server certificate verified:")
+                                if 'subject' in cert:
+                                    for item in cert['subject']:
+                                        for key, value in item:
+                                            if key == 'commonName':
+                                                print(f"  - Common Name: {value}")
+                                print(f"  - Issuer: {cert.get('issuer', 'Unknown')}")
+                                print(f"  - Valid until: {cert.get('notAfter', 'Unknown')}")
+                            else:
+                                print("Warning: No certificate information available")
+                        else:
+                            print("Warning: SSL certificate verification is disabled")
+                            
                         print(f"SSL {channel_type} connection established")
                     except ssl.SSLError as e:
-                        print(f"SSL error: {e}")
+                        print(f"SSL certificate verification failed: {e}")
+                        client_socket.close()
+                        if attempt == retry_attempts - 1:
+                            raise
+                        continue
+                    except ssl.CertificateError as e:
+                        print(f"Certificate verification error: {e}")
                         client_socket.close()
                         if attempt == retry_attempts - 1:
                             raise
