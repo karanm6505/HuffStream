@@ -87,40 +87,39 @@ Edit `config/client_config.json`:
 
 ### SSL/TLS Implementation
 
-The application uses Python's built-in `ssl` module to provide secure communications:
+The application uses Python's built-in `ssl` module (which wraps OpenSSL) to provide secure communications. Configuration is now handled through environment variables:
 
-1. Server generates a self-signed certificate and private key
-2. Client verifies the server's certificate using configurable verification modes:
-   - `required`: Certificate must be valid and trusted
-   - `optional`: Certificate is verified if possible
-   - `disabled`: No certificate verification (not recommended for production)
-3. All data transfers are encrypted using TLS 1.2 or higher
+#### Environment Variables for SSL
 
-To enable certificate verification:
+**Server:**
+- `SSL_CERT_PATH`: Path to the server's certificate file
+- `SSL_KEY_PATH`: Path to the server's private key file
 
-```json
-"ssl": {
-  "enabled": true,
-  "cert_file": "config/server.crt",
-  "verify": true,
-  "verification_mode": "required"
-}
+**Client:**
+- `SSL_VERIFY`: Set to "true" to enable certificate verification (default: "false")
+- `SSL_CERT_PATH`: Path to the certificate file for verification
+- `SSL_VERIFICATION_MODE`: Verification mode - "required", "optional", or "none" (default: "required")
+
+#### Example Usage
+
+For the server:
+```bash
+export SSL_CERT_PATH=/path/to/server.crt
+export SSL_KEY_PATH=/path/to/server.key
 ```
 
-For development environments or testing, you can disable verification:
-
-```json
-"ssl": {
-  "enabled": true,
-  "verify": false
-}
+For the client:
+```bash
+export SSL_VERIFY=true
+export SSL_CERT_PATH=/path/to/server.crt 
+export SSL_VERIFICATION_MODE=required
 ```
 
 ### Security Considerations
 
 For production environments:
 - Replace the self-signed certificate with a certificate from a trusted CA
-- Always use certificate verification
+- Always use certificate verification (set `SSL_VERIFY=true`)
 - Regularly update certificates before expiration
 
 ## Usage

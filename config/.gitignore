@@ -1,8 +1,0 @@
-# Ignore generated SSL certificates and keys
-*.crt
-*.key
-*.pem
-
-# Ignore actual configuration files that may contain sensitive data
-server_config.json
-client_config.json

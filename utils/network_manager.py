@@ -1,6 +1,5 @@
 import socket
 import ssl
-import json
 import os
 import threading
 import time
@@ -8,49 +7,35 @@ import sys
 from pathlib import Path
 
 class SSLContext:
-    """Manages SSL contexts for secure connections"""
+    """Manages SSL contexts for secure connections using OpenSSL directly"""
     
     @staticmethod
-    def create_server_context(cert_file, key_file):
-        """Create an SSL context for the server"""
-        context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
-        try:
-            context.load_cert_chain(certfile=cert_file, keyfile=key_file)
-            context.options |= ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1  # Disable older protocols
-            return context
-        except (FileNotFoundError, ssl.SSLError) as e:
-            print(f"SSL Error: {e}")
-            print(f"Make sure certificate files exist: {cert_file}, {key_file}")
-            print("Run scripts/generate_certificates.py to create them")
-            return None
-    
-    @staticmethod
-    def create_client_context(cert_file=None, verify=False, verification_mode="required"):
-        """Create an SSL context for the client"""
+    def create_client_context():
+        """Create an SSL context for the client using environment variables"""
         context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
         
-        if not verify:
-            print("WARNING: SSL certificate verification is disabled")
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
-        else:
-            print("SSL certificate verification is enabled")
-            context.check_hostname = True
+        # Use environment variables for SSL configuration
+        verify = os.environ.get("SSL_VERIFY", "false").lower() == "true"
+        cert_path = os.environ.get("SSL_CERT_PATH")
+        
+        if verify:
+            verification_mode = os.environ.get("SSL_VERIFICATION_MODE", "required")
             
-            # Set verification mode based on configuration
-            if verification_mode.lower() == "required":
+            if verification_mode == "required":
                 context.verify_mode = ssl.CERT_REQUIRED
-                print("Certificate verification mode: REQUIRED")
-            elif verification_mode.lower() == "optional":
+                context.check_hostname = True
+            elif verification_mode == "optional":
                 context.verify_mode = ssl.CERT_OPTIONAL
-                print("Certificate verification mode: OPTIONAL")
+                context.check_hostname = False
             else:
-                context.verify_mode = ssl.CERT_REQUIRED  # Default to required
+                context.verify_mode = ssl.CERT_NONE
+                context.check_hostname = False
             
-            if cert_file:
+            # If certificate path is provided, load it
+            if cert_path:
                 try:
-                    context.load_verify_locations(cafile=cert_file)
-                    print(f"Using certificate file: {cert_file}")
+                    context.load_verify_locations(cafile=cert_path)
+                    print(f"Using certificate at {cert_path} for verification")
                 except (FileNotFoundError, ssl.SSLError) as e:
                     print(f"SSL Warning: {e}")
                     print("Cannot proceed with verification without valid certificate")
@@ -61,29 +46,76 @@ class SSLContext:
                         print("Falling back to no certificate verification")
                         context.check_hostname = False
                         context.verify_mode = ssl.CERT_NONE
+        else:
+            # No verification
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+            
+        # Set secure protocol options
+        context.options |= ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1  # Disable older protocols
+        
+        return context
+    
+    @staticmethod
+    def create_server_context():
+        """Create an SSL context for the server using environment variables"""
+        context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        
+        cert_path = os.environ.get("SSL_CERT_PATH")
+        key_path = os.environ.get("SSL_KEY_PATH")
+        
+        if not cert_path or not key_path:
+            raise ValueError("SSL_CERT_PATH and SSL_KEY_PATH environment variables must be set")
+        
+        try:
+            context.load_cert_chain(certfile=cert_path, keyfile=key_path)
+            print(f"Using certificate at {cert_path} and key at {key_path}")
+        except (FileNotFoundError, ssl.SSLError) as e:
+            print(f"SSL Error: {e}")
+            raise
         
         # Set secure protocol options
         context.options |= ssl.OP_NO_TLSv1 | ssl.OP_NO_TLSv1_1  # Disable older protocols
         
         return context
+    
+    @staticmethod
+    def verify_ssl_connection(socket_conn):
+        """Verify if a socket is using SSL and return connection details"""
+        if not isinstance(socket_conn, ssl.SSLSocket):
+            return {
+                "secure": False,
+                "message": "Connection is not using SSL/TLS"
+            }
+        
+        # Get SSL/TLS version
+        version = socket_conn.version()
+        
+        # Get cipher being used
+        cipher = socket_conn.cipher()
+        cipher_name = cipher[0] if cipher else "Unknown"
+        cipher_bits = cipher[2] if cipher else "Unknown"
+        
+        # Check if certificate verification was done
+        cert_verified = "verified" if socket_conn.context.verify_mode != ssl.CERT_NONE else "not verified"
+        
+        return {
+            "secure": True,
+            "version": version,
+            "cipher": cipher_name,
+            "bits": cipher_bits,
+            "certificate": cert_verified
+        }
 
 class ConnectionManager:
     """Manages network connections for both server and client"""
     
-    def __init__(self, config_path, is_server=True):
+    def __init__(self, is_server=True):
         self.is_server = is_server
         self.running = False
         self.connections = []
         self.threads = []
         self.ssl_contexts = {}
-        
-        # Load configuration
-        try:
-            with open(config_path, 'r') as f:
-                self.config = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError) as e:
-            print(f"Error loading configuration: {e}")
-            sys.exit(1)
             
         # Resolve paths relative to project root
         self.project_root = Path(__file__).parent.parent
@@ -96,34 +128,37 @@ class ConnectionManager:
         self.running = True
         self.server_sockets = []
         
-        for server_config in self.config['servers']:
-            # Setup SSL if enabled
-            ssl_context = None
-            if server_config.get('ssl', {}).get('enabled', False):
-                cert_file = self.project_root / server_config['ssl'].get('cert_file')
-                key_file = self.project_root / server_config['ssl'].get('key_file')
-                ssl_context = SSLContext.create_server_context(cert_file, key_file)
-                if not ssl_context:
-                    print(f"Warning: SSL setup failed for {server_config['host']}:{server_config['data_port']}")
-                    # Continue without SSL
-            
-            # Create data channel socket
-            self._start_listening_socket(
-                server_config['host'], 
-                server_config['data_port'], 
-                connection_handler,
-                ssl_context,
-                'data'
-            )
-            
-            # Create control channel socket
-            self._start_listening_socket(
-                server_config['host'], 
-                server_config['control_port'], 
-                control_handler,
-                ssl_context,
-                'control'
-            )
+        # Get server configuration from environment variables
+        host = os.environ.get('SERVER_HOST', '0.0.0.0')
+        data_port = int(os.environ.get('SERVER_DATA_PORT', '9999'))
+        control_port = int(os.environ.get('SERVER_CONTROL_PORT', '9998'))
+        ssl_enabled = os.environ.get('SSL_ENABLED', 'false').lower() == 'true'
+        
+        # Setup SSL if enabled
+        ssl_context = None
+        if ssl_enabled:
+            ssl_context = SSLContext.create_server_context()
+            if not ssl_context:
+                print(f"Warning: SSL setup failed for {host}:{data_port}")
+                # Continue without SSL
+        
+        # Create data channel socket
+        self._start_listening_socket(
+            host, 
+            data_port, 
+            connection_handler,
+            ssl_context,
+            'data'
+        )
+        
+        # Create control channel socket
+        self._start_listening_socket(
+            host, 
+            control_port, 
+            control_handler,
+            ssl_context,
+            'control'
+        )
             
         print(f"Server started with {len(self.threads)} listening threads")
         print("Press Ctrl+C to stop the server")
@@ -137,7 +172,8 @@ class ConnectionManager:
             
             # Bind and listen
             server_socket.bind((host, port))
-            server_socket.listen(self.config.get('max_connections', 5))
+            max_connections = int(os.environ.get('MAX_CONNECTIONS', '5'))
+            server_socket.listen(max_connections)
             
             self.server_sockets.append(server_socket)
             print(f"Listening for {channel_type} connections on {host}:{port}")
@@ -190,31 +226,28 @@ class ConnectionManager:
             except Exception as e:
                 print(f"Unexpected error in connection acceptance: {e}")
     
-    def connect_to_server(self, server_index=0):
+    def connect_to_server(self):
         """Connect to a server as a client"""
         if self.is_server:
             raise RuntimeError("This instance is configured as a server")
-        
-        if server_index >= len(self.config['servers']):
-            raise ValueError(f"Server index {server_index} out of range")
             
-        server_config = self.config['servers'][server_index]
-        retry_attempts = self.config.get('retry_attempts', 1)
-        retry_delay = self.config.get('retry_delay', 5)
+        # Get client configuration from environment variables
+        host = os.environ.get('CLIENT_SERVER_HOST', '127.0.0.1')
+        data_port = int(os.environ.get('CLIENT_DATA_PORT', '9999'))
+        control_port = int(os.environ.get('CLIENT_CONTROL_PORT', '9998'))
+        retry_attempts = int(os.environ.get('RETRY_ATTEMPTS', '3'))
+        retry_delay = int(os.environ.get('RETRY_DELAY', '5'))
+        ssl_enabled = os.environ.get('SSL_ENABLED', 'false').lower() == 'true'
         
         # Setup SSL if enabled
         ssl_context = None
-        if server_config.get('ssl', {}).get('enabled', False):
-            cert_file = None
-            if 'cert_file' in server_config['ssl']:
-                cert_file = self.project_root / server_config['ssl']['cert_file']
-            verify = server_config['ssl'].get('verify', False)
-            ssl_context = SSLContext.create_client_context(cert_file, verify)
+        if ssl_enabled:
+            ssl_context = SSLContext.create_client_context()
         
         # Connect data channel
         data_socket = self._connect_socket(
-            server_config['host'],
-            server_config['data_port'],
+            host,
+            data_port,
             ssl_context,
             retry_attempts,
             retry_delay,
@@ -223,13 +256,31 @@ class ConnectionManager:
         
         # Connect control channel
         control_socket = self._connect_socket(
-            server_config['host'],
-            server_config['control_port'],
+            host,
+            control_port,
             ssl_context,
             retry_attempts,
             retry_delay,
             'control'
         )
+        
+        # Verify if connection is secure
+        if ssl_enabled:
+            data_security = SSLContext.verify_ssl_connection(data_socket)
+            control_security = SSLContext.verify_ssl_connection(control_socket)
+            
+            if data_security["secure"] and control_security["secure"]:
+                print("\n✅ Secure connection established successfully!")
+                print(f"Protocol: {data_security['version']}")
+                print(f"Cipher: {data_security['cipher']} ({data_security['bits']} bits)")
+                print(f"Certificate: {data_security['certificate']}")
+            else:
+                print("\n⚠️  Warning: Connection is not secure!")
+                print("SSL was requested but could not be established.")
+                print("Check your SSL configuration and certificate paths.")
+        else:
+            print("\n⚠️  Warning: Connection is not encrypted!")
+            print("SSL is disabled. Enable SSL for secure communication.")
         
         return data_socket, control_socket
         
@@ -334,7 +385,7 @@ class ConnectionManager:
     def receive_message(self, sock, buffer_size=None):
         """Receive a message from the socket"""
         if buffer_size is None:
-            buffer_size = self.config.get('buffer_size', 4096)
+            buffer_size = int(os.environ.get('BUFFER_SIZE', '4096'))
             
         try:
             data = sock.recv(buffer_size)
